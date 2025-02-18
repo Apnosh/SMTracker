@@ -6,6 +6,13 @@ import schedule
 import time
 from threading import Thread
 from agent import app as agent_app
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"Apnosh"}
 
 # Load environment variables from .env file
 load_dotenv()
