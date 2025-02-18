@@ -96,11 +96,25 @@ def run_agent_api():
     import uvicorn
     uvicorn.run(agent_app, host="0.0.0.0", port=8000)
 
-# Start the FastAPI agent API in a separate thread
-api_thread = Thread(target=run_agent_api)
-api_thread.start()
+# Function to run the FastAPI app in the foreground
+def run_agent_api():
+    import uvicorn
+    uvicorn.run(agent_app, host="0.0.0.0", port=8000)
 
-# Keep running
-while True:
-    schedule.run_pending()
-    time.sleep(60)
+# Start the FastAPI agent API in the foreground
+def start_agent_foreground():
+    run_agent_api()
+
+# Function to run the background Instagram fetching job
+def start_instagram_background():
+    while True:
+        schedule.run_pending()  # Ensure jobs run on time
+        time.sleep(60)  # Sleep for 1 minute to prevent CPU overload
+
+if __name__ == "__main__":
+    # Run Instagram background task
+    instagram_background_thread = Thread(target=start_instagram_background)
+    instagram_background_thread.start()
+
+    # Run FastAPI in the foreground
+    start_agent_foreground()
