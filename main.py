@@ -5,14 +5,9 @@ from dotenv import load_dotenv
 import schedule
 import time
 from threading import Thread
-from agent import app as agent_app
 from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/")
-def read_root():
-    return {"Apnosh"}
+from contextlib import asynccontextmanager
+from agent import app as agent_app
 
 # Load environment variables from .env file
 load_dotenv()
@@ -98,30 +93,28 @@ def job():
 
 schedule.every(12).hours.do(job)
 
-# Function to run the FastAPI app in the background
-def run_agent_api():
-    import uvicorn
-    uvicorn.run(agent_app, host="0.0.0.0", port=8000)
-
-# Function to run the FastAPI app in the foreground
-def run_agent_api():
-    import uvicorn
-    uvicorn.run(agent_app, host="0.0.0.0", port=8000)
-
-# Start the FastAPI agent API in the foreground
-def start_agent_foreground():
-    run_agent_api()
-
 # Function to run the background Instagram fetching job
 def start_instagram_background():
     while True:
         schedule.run_pending()  # Ensure jobs run on time
         time.sleep(60)  # Sleep for 1 minute to prevent CPU overload
 
-if __name__ == "__main__":
-    # Run Instagram background task
+# FastAPI lifespan event
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start the background thread
     instagram_background_thread = Thread(target=start_instagram_background)
     instagram_background_thread.start()
+    yield
+    # Clean up (optional)
+    instagram_background_thread.join()
 
-    # Run FastAPI in the foreground
-    start_agent_foreground()
+# Create FastAPI app
+app = FastAPI(lifespan=lifespan)
+
+# Mount the agent app under a prefix (optional)
+app.mount("/agent", agent_app)
+
+@app.get("/")
+def read_root():
+    return {"Apnosh"}
