@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 import schedule
 import time
+from agent import app as agent_app
 
 # Load environment variables from .env file
 load_dotenv()
@@ -88,6 +89,15 @@ def job():
         store_data_in_supabase(data)
 
 schedule.every(12).hours.do(job)
+
+# Function to run the FastAPI app in the background
+def run_agent_api():
+    import uvicorn
+    uvicorn.run(agent_app, host="0.0.0.0", port=8000)
+
+# Start the FastAPI agent API in a separate thread
+api_thread = Thread(target=run_agent_api)
+api_thread.start()
 
 # Keep running
 while True:
