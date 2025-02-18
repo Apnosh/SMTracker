@@ -1,0 +1,36 @@
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment directories
+venv/
+env/
+*.env/
+
+# .env files containing sensitive credentials
+.env
+
+# Heroku and other deployment files
+*.lock
+*.log
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE/editor folders
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS-specific files
+.DS_Store
+
+# Windows-specific files
+Thumbs.db
+
+# Docker files (if you plan to use Docker in the future)
+docker-compose.yml
+Dockerfile
