@@ -118,3 +118,7 @@ app.mount("/agent", agent_app)
 @app.get("/")
 def read_root():
     return {"Apnosh"}
+
+@app.get("/api-endpoint")
+def read_api():
+    return {"message": "API endpoint"}
