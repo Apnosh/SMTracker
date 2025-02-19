@@ -3,11 +3,14 @@ import requests
 import os
 from dotenv import load_dotenv
 import schedule
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from openai import OpenAI
+import json
+import uvicorn
+import threading
 import time
-from threading import Thread
-from fastapi import FastAPI
-from contextlib import asynccontextmanager
-from agent import app as agent_app
 
 # Load environment variables from .env file
 load_dotenv()
@@ -16,8 +19,40 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_API_KEY = os.getenv("SUPABASE_API_KEY")
 INSTAGRAM_ACCESS_TOKEN = os.getenv("INSTAGRAM_ACCESS_TOKEN")
 INSTAGRAM_USER_ID = os.getenv("INSTAGRAM_USER_ID")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# Initialize FastAPI app
+app = FastAPI()
+
+# Enable CORS
+origins = [
+    "http://localhost",
+    "http://localhost:8000",
+    "http://localhost:3000",
+]
+
+# Set all CORS enabled origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Supabase setup
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_API_KEY)
+
+# OpenAI API setup
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+class QueryRequest(BaseModel):
+    question: str
+
+class QueryResponse(BaseModel):
+    response: str = Field(
+        description="A natural language response to the user's question"
+    )
 
 # Fetch data from Instagram
 def fetch_instagram_data():
@@ -91,34 +126,78 @@ def job():
     if data:
         store_data_in_supabase(data)
 
-schedule.every(12).hours.do(job)
+schedule.every(1).hour.do(job)
 
-# Function to run the background Instagram fetching job
-def start_instagram_background():
+def fetch_data():
+    """Fetch Instagram data from Supabase."""
+    response = supabase.table("instagram_posts").select("instagram_id, caption, likes, comments, media_type, timestamp, engagement, total_followers").order("timestamp", desc=True).execute()
+    if response.data:
+        return response.data
+    return "No engagement data found."
+
+@app.post("/chat")
+async def chat_with_ai(request: QueryRequest):
+    try:
+        # Define the tool function OpenAI can call
+        tools = [{
+            "type": "function",
+            "function": {
+                "name": "fetch_data",
+                "description": "Fetch Instagram data, instagram_id, caption, likes, comments, media_type, timestamp, engagement, total_followers, from Supabase.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False
+                },
+                "strict": True
+            }
+        }]
+
+        # Define the messages to send to OpenAI
+        messages=[
+            {"role": "system", "content": "You are an Instagram analytics assistant."},
+            {"role": "user", "content": request.question}
+        ]
+
+        # Send request to ChatGPT
+        response = client.beta.chat.completions.parse(
+            model="gpt-4o",
+            messages=messages,
+            tools=tools,
+            response_format=QueryResponse
+        )
+
+        # Check if GPT wants to call fetch_data
+        if response.choices[0].message.tool_calls:
+            for tool_call in response.choices[0].message.tool_calls:
+                messages.append(response.choices[0].message)
+                if tool_call.function.name == "fetch_data":
+                    data = fetch_data()
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": json.dumps(data)})
+                    
+                    # Call AI agent again with the fetched data from the tool
+                    response = client.beta.chat.completions.parse(
+                        model="gpt-4o",
+                        messages=messages,
+                        tools=tools,
+                        response_format=QueryResponse
+                    )
+
+        return response.choices[0].message.parsed.response
+        # return {"response": chat_response.strip() if chat_response else "No response from AI"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+def run_schedule():
     while True:
-        schedule.run_pending()  # Ensure jobs run on time
-        time.sleep(60)  # Sleep for 1 minute to prevent CPU overload
+        schedule.run_pending()
+        time.sleep(1)
 
-# FastAPI lifespan event
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Start the background thread
-    instagram_background_thread = Thread(target=start_instagram_background)
-    instagram_background_thread.start()
-    yield
-    # Clean up (optional)
-    instagram_background_thread.join()
+# Start the scheduler thread
+scheduler_thread = threading.Thread(target=run_schedule)
+scheduler_thread.daemon = True  # Daemonize thread to exit when the main program exits
+scheduler_thread.start()
 
-# Create FastAPI app
-app = FastAPI(lifespan=lifespan)
-
-# Mount the agent app under a prefix (optional)
-app.mount("/agent", agent_app)
-
-@app.get("/")
-def read_root():
-    return {"Apnosh"}
-
-@app.get("/api-endpoint")
-def read_api():
-    return {"message": "API endpoint"}
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
